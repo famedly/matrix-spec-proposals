@@ -88,9 +88,9 @@ mxc://, or is empty is malformed, and the whole request is `400 M_INVALID_PARAM`
 and the client passes that local media id in `attach_media`.
 - For example, sending an image and its thumbnail:
 `PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}?attach_media=abc123&attach_media=def456`
-- A repeated transaction with the same media ids returns 200 and the original event id. That check happens before the
-404. A new transaction id that presents an already-attached media id response with a status code of 404 and an error
-code of `M_NOT_FOUND`.
+- A repeated transaction with the same media ids returns 200 and the original event id. That check happens before
+the 404. A new transaction id that presents an already-attached media id response with a status code of 404 and an
+error code of `M_NOT_FOUND`.
 - If any well-formed `attach_media` cannot be attached, the server response with a status code of 404 and an error
 code of `M_NOT_FOUND` and attached none of them. The caller cannot tell them apart. This is the only response for
 that failure. It covers:
@@ -112,16 +112,15 @@ cannot be attached receives the same response with a status code of 404 and an e
 send endpoints.
 - Profile fields, account data, and unencrypted room events of a type the server understands are compared with
 `attach_media`. Only the following fields are inspected:
+
   | Content | Fields |
   | --- | --- |
-  | `m.room.message` | `url`, `info.thumbnail_url`, and the `src` of every `<img>` tag in `formatted_body` when
-  `format` is `de.famedly.custom.html` |
+  | `m.room.message` | `url`, `info.thumbnail_url`, and the `src` of every `<img>` tag in `formatted_body` when `format` is `de.famedly.custom.html` |
   | `m.sticker` | `url`, `info.thumbnail_url` |
   | `m.room.avatar` | `url`, `info.thumbnail_url` |
   | `m.room.member` | `avatar_url` |
   | Profile (`PUT /profile/{userId}/avatar_url`) | `avatar_url` |
-  | Account data of any type (global and per-room) | every string value, at any depth of the content, that is an
-  `mxc://` URI |
+  | Account data of any type (global and per-room) | every string value, at any depth of the content, that is an `mxc://` URI |
 - Inline images in `formatted_body` count. A client sending an HTML message with inline images must therefore include
 each of their media ids in `attach_media`, and the server rejects the event if it does not.
 - Account data has no fixed schema, so the server scans the whole content for MXC URIs instead of named fields.
@@ -161,10 +160,10 @@ history.
 - The extra member events in many rooms are unchanged. Remote servers SHOULD use the `sha256` in the federation
 metadata to avoid re-downloading bytes they already hold. With that, the traffic storm becomes N small metadata
 responses instead of N full downloads.
-- `PUT /profile/{userId}/avatar_url?attach_media={localMediaId}` attaches that id to the profile. The `avatar_url` in
-the JSON body is the `mxc://` URI for that same local id. The server checks that they match. A mismatch is 400. Any
-other failure to attach response with a status code of 404 and an error code of `M_NOT_FOUND`. Setting the same
-avatar again is idempotent and returns 200.
+- `PUT /profile/{userId}/avatar_url?attach_media={localMediaId}` attaches that id to the profile.
+The `avatar_url` in the JSON body is the `mxc://` URI for that same local id. The server checks that they match.
+A mismatch is 400. Any other failure to attach response with a status code of 404 and an error code of `M_NOT_FOUND`.
+Setting the same avatar again is idempotent and returns 200.
 
 #### Federation API returns a `restrictions` property
 
@@ -186,7 +185,7 @@ JSON object with one of the following properties:
       "restrictions": {
         "event_id": "$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg"
       }
-    }
+    },
     {
       "restrictions": {
         "to_device": {
@@ -221,10 +220,8 @@ rooms.
 
   ```http
   Content-Type: multipart/mixed; boundary=gc0p4Jq0M2Yt08jU534c0p
-
   --gc0p4Jq0M2Yt08jU534c0p
   Content-Type: application/json
-
   { "restrictions": {
       "event_id": "$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg"
     },
@@ -232,9 +229,8 @@ rooms.
   }
   --gc0p4Jq0M2Yt08jU534c0p
   Content-Type: text/plain
-
   This media is plain text. Maybe somebody used it as a paste bin.
-  --gc0p4Jq0M2Yt08jU534c0p--
+  --gc0p4Jq0M2Yt08jU534c0p
   ```
 
 #### Removal
@@ -300,8 +296,8 @@ server operator. It is not visible to another user, because the digest is only r
 allowed to make.
 - A batch form, `POST /_matrix/client/v1/media/copy`, copies several items in one request. It takes the same
 `timeout_ms` query parameter.
-  - The request body is `{ "mxc_uris": ["mxc://...", ...] }`, with at most as many entries as the server's attachment
-  maximum.
+  - The request body is `{ "mxc_uris": ["mxc://...", ...] }`, with at most as many entries as the
+  server's attachment maximum.
   - The response is `{ "content_uris": ["mxc://...", ...] }`, in the same order as the request.
   - The request is all-or-nothing. If any source cannot be copied, response with a status code of 404 and an error
   code of `M_NOT_FOUND` and no copies are created.
@@ -351,20 +347,11 @@ is exactly what /copy and forwarding produce. That is the case that matters.
 ## Potential issues
 
 - There are could be two separate places where media is mentioned. The event body says what media the client should
-display:
-```json
-{
-  "url": "mxc://example.org/cat"
-}
-```
-The attach_media query parameter tells the homeserver which media should be accessible:
-```text
-?attach_media=dog
-```
-For profile fields, account data, and the unencrypted event types listed in [Attaching media](#2-attaching-media),
-the server checks that the two match. For encrypted events and custom event types, the server cannot read or
-interpret the content, so nothing enforces the match. Users may then be unable to download the displayed image while
-being allowed to download an unrelated one. For those events:
+display like `{"url": "mxc://example.org/cat"}` but the attach_media query parameter tells the homeserver which
+media should be accessible `?attach_media=dog`. For profile fields, account data, and the unencrypted event types
+listed in [Attaching media](#2-attaching-media), the server checks that the two match. For encrypted events and
+custom event types, the server cannot read or interpret the content, so nothing enforces the match. Users may
+then be unable to download the displayed image while being allowed to download an unrelated one. For those events:
   - `attach_media` is the authoritative access-control list.
   - Clients must ensure that it contains every restricted media id referenced by the event.
   - Incorrect or missing attachments are a client error and may produce broken media.
@@ -421,11 +408,9 @@ cannot download it without a media id they are allowed to use.
 | `/_matrix/client/v1/media/upload` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/upload` |
 | `/_matrix/client/v1/media/create` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/create` |
 | `attach_media` (repeated query parameter; each value is a local media id) | `de.famedly.mscXXXX.attach_media` |
-| `restrictions` | `de.famedly.mscXXXX.restrictions` (`event_id`, `profile_user_id`, `user_id`, and `to_device` are not
-prefixed) |
+| `restrictions` | `de.famedly.mscXXXX.restrictions` (`event_id`, `profile_user_id`, `user_id`, and `to_device` are not prefixed) |
 | `sha256` (federation metadata) | `de.famedly.mscXXXX.sha256` |
-| `/_matrix/client/v1/media/copy/:serverName/:mediaId` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy/
-:serverName/:mediaId` |
+| `/_matrix/client/v1/media/copy/:serverName/:mediaId` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy/:serverName/:mediaId` |
 | `/_matrix/client/v1/media/copy` (batch) | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy` |
 
 - Servers should provide a feature flag so that clients can enable support.
