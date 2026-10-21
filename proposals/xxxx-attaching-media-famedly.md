@@ -2,15 +2,12 @@
 
 ## Introduction
 
-This is revised version of [MSC3911](https://github.com/matrix-org/matrix-spec-proposals/pull/3911) which is an
-alternative to [MSC3910](https://github.com/matrix-org/matrix-spec-proposals/pull/3910).
-
+This is revised version of [MSC3911](https://github.com/matrix-org/matrix-spec-proposals/pull/3911).
 Currently, access to media in Matrix has the following problems:
-
-- The only protection for media is the obscurity of the URL, and URLs are easily leaked.
-- When a media event is redacted, the media it used remains visible to all. [synapse#1263](https://github.com/element-hq/synapse/issues/1263)
-- If a user requests GDPR erasure, their media remains visible to all.
-- When all users leave a room, their media is not deleted from the server.
+  - The only protection for media is the obscurity of the URL, and URLs are easily leaked.
+  - When a media event is redacted, the media it used remains visible to all. [synapse#1263](https://github.com/element-hq/synapse/issues/1263)
+  - If a user requests GDPR erasure, their media remains visible to all.
+  - When all users leave a room, their media is not deleted from the server.
 
 This proposal builds on [MSC3916: Authentication for media access, and new endpoint names](3916-authentication-for-media.md)
 which adds authentication to media download, to require that the authenticated user is *authorised* to access the
@@ -22,45 +19,32 @@ and the federation equivalents from MSC3916).
 
 ### Overview
 
-After an item of media is uploaded, it is not viewable, except by the user who uploaded it, until it is attached. A
-media must be attached to an event via the repeated `attach_media` query parameter on the `/send` API. That event may
-be a to-device event or an in-room event. To-device events and account data use the same parameter. They are not room
-events, so their visibility rule is narrower and is fixed below.
-User profiles are a separate case: they are not events, though in most cases their contents are copied into membership
-events. A given piece of media is visible to a user only if that user can see the corresponding event.
+Enforcing permissions on and/or removing an item of media proactively, responsibly and in a semi-automated way is best
+determined by how that media is used. For a media message such as an image, it depends on the underlying Event. For a
+profile avatar, it depends on the user's MXID. And so forth.
+This proposal provides the mechanisms to associate media with its basis. This allows past MSC efforts, such as MSC3916,
+to complete its stated goal of imposing authorization requirements on retrievable media while also providing the
+mechanisms for a server to control and purge its storage of media.
 
 ### Detailed Spec Changes
 
-#### Additional header and checks on `/download` and `/thumbnail` endpoints
+#### Media Visibility
 
-- The authenticated `/download` and `/thumbnail` endpoints from
-[MSC3916: Authentication for media access, and new endpoint names](3916-authentication-for-media.md)
-which v1.19 already has, gain an authorization check.
-- The authenticated `/download` and `/thumbnail` endpoints MUST support `HEAD`, and MUST return
-`Content-Digest: sha-256=:<base64>:` on an authorized response. The value is padded base64, as required by
-[RFC 9530](https://www.rfc-editor.org/rfc/rfc9530). Clients can check with `HEAD`, or abort a `GET` once the headers
-arrive.
-- Encrypted media already carries `file.hashes.sha256` (the ciphertext hash) inside the event, so clients can
-recognise duplicates locally with no server help.
-- Pending media that is not yet attached is allowed only for its creator, and never over federation.
-- If the caller is not allowed to see it, or the media does not exist, or was removed, the server responds with a
-status code of 404 and an error code of `M_NOT_FOUND`. The same status is used for both, to prevent metadata
-enumeration.
-- Media is visible exactly when the event/profile/etc it is bound to is visible. How a deployment splits the
-homeserver from its media store is out of scope.
-  - A room event (including state created by create room or upgrade): the spec's existing event visibility rules.
-  Federation is allowed when the requesting server has at least one user who would be shown that event.
-  - **Exception for invites and knocks**: media referenced by events in `invite_room_state` or `knock_room_state`
-  (the stripped state sent with invites and knocks) is visible to the invited or knocking user. Over federation, the
-  origin allows a requesting server that has a user with a pending invite or knock. Without this exception, invite
-  previews can't show the room avatar.
-  - A profile: the same rule the server already uses for profile reads. If profile reads are limited to users who
-  share a room, the media is too.
-  - A to-device event: the sender, or a recipient. A remote requester is allowed only when it is a recipient's
-  server, fetching for that user.
-  - Account data and URL previews: only the owning user. No other user and no other server.
+- Unattached media is visible to only it's creator until it is attached to an event or a profile.
+- Media is visible exactly when the event or profile it is bound to is visible.
+- A room event (including state created by create room or upgrade): the spec's existing event visibility rules.
+Federation is allowed when the requesting server has at least one user who would be shown that event.
+- **Exception for invites and knocks**: media referenced by events in `invite_room_state` or `knock_room_state`
+(the stripped state sent with invites and knocks) is visible to the invited or knocking user. Over federation, the
+origin allows a requesting server that has a user with a pending invite or knock. Without this exception, invite
+previews can't show the room avatar.
+- A profile: the same rule the server already uses for profile reads. If profile reads are limited to users who
+share a room, the media is too.
+- A to-device event: the sender, or a recipient. A remote requester is allowed only when it is a recipient's
+server, fetching for that user.
+- Account data and URL previews: only the owning user. No other user and no other server.
 
-#### Attaching media
+#### Attaching Media
 
 - To close the gap between creating restricted media and attaching it, a user may attach only media that they
 created. For a media id returned by the copy API, the creator is the user who called `/copy`, not the creator of the
@@ -70,6 +54,7 @@ original media id.
 piece of media is attached to only one event. More than the maximum causes the server to respond with a 400 error and
 errcode of `M_LIMIT_EXCEEDED`.
 - The methods for sending events are extended with a repeated query parameter, `attach_media`.:
+
   - [PUT /_matrix/client/v3/rooms/{roomId}/send/{eventType}/{txnId}](https://spec.matrix.org/v1.19/client-server-api/#put_matrixclientv3roomsroomidsendeventtypetxnid)
   - [PUT /_matrix/client/v3/rooms/{roomId}/state/{eventType}/{stateKey}](https://spec.matrix.org/v1.19/client-server-api/#put_matrixclientv3roomsroomidstateeventtypestatekey)
   - [PUT /_matrix/client/v3/sendToDevice/{eventType}/{txnId}](https://spec.matrix.org/v1.19/client-server-api/#put_matrixclientv3sendtodeviceeventtypetxnid)
@@ -77,6 +62,7 @@ errcode of `M_LIMIT_EXCEEDED`.
   - [PUT /_matrix/client/v3/user/{userId}/rooms/{roomId}/account_data/{type}](https://spec.matrix.org/v1.19/client-server-api/#put_matrixclientv3useruseridroomsroomidaccount_datatype)
   - [POST /_matrix/client/v3/createRoom](https://spec.matrix.org/v1.19/client-server-api/#post_matrixclientv3createroom)
   - [PUT /_matrix/client/v3/profile/{userId}/{keyName}](https://spec.matrix.org/v1.19/client-server-api/#put_matrixclientv3profileuseridkeyname)
+
 - [Room upgrade](https://spec.matrix.org/v1.19/client-server-api/#post_matrixclientv3roomsroomidupgrade) does not
 take `attach_media`. The server copies the media referenced by the state it transfers to the new room, such as the
 room avatar, and binds each copy to the new room's state event.
@@ -94,12 +80,14 @@ error code of `M_NOT_FOUND`.
 - If any well-formed `attach_media` cannot be attached, the server response with a status code of 404 and an error
 code of `M_NOT_FOUND` and attached none of them. The caller cannot tell them apart. This is the only response for
 that failure. It covers:
+
   - an unknown media id
   - a media id from another server
   - media the caller did not create
   - media that is already attached
   - legacy unrestricted media
   - media the caller is not allowed to access.
+
 - Sending the event binds each media id to that event. A profile write binds the id to that user. Create room binds
 each media id to the one initial state event that references it. When the server has to put the same bytes on a
 second event, it copies first, then binds the new id. The client's original id is still bound to only one event.
@@ -121,6 +109,7 @@ send endpoints.
   | `m.room.member` | `avatar_url` |
   | Profile (`PUT /profile/{userId}/avatar_url`) | `avatar_url` |
   | Account data of any type (global and per-room) | every string value, at any depth of the content, that is an `mxc://` URI |
+
 - Inline images in `formatted_body` count. A client sending an HTML message with inline images must therefore include
 each of their media ids in `attach_media`, and the server rejects the event if it does not.
 - Account data has no fixed schema, so the server scans the whole content for MXC URIs instead of named fields.
@@ -141,7 +130,7 @@ point of encryption.
 - Widgets send events through the Widget API rather than calling `/send` directly, so they cannot pass `attach_media`
 themselves. Widget support requires the Widget API's `send_event` action to accept an `attach_media` list, and its
 upload action to use the restricted upload endpoint, as in
-[MSC4039: Access the Content Repository With the Widget API](https://github.com/nordeck/matrix-spec-proposals/blob/nic/feat/widgetapi-upload-files/proposals/4039-widget-api-media.md).
+[MSC4039: Access the Content Repository With the Widget API](https://github.com/matrix-org/matrix-spec-proposals/pull/4039).
 Until then, widgets keep using unrestricted media.
 
 #### URL preview
@@ -165,7 +154,56 @@ The `avatar_url` in the JSON body is the `mxc://` URI for that same local id. Th
 A mismatch is 400. Any other failure to attach response with a status code of 404 and an error code of `M_NOT_FOUND`.
 Setting the same avatar again is idempotent and returns 200.
 
-#### Federation API returns a `restrictions` property
+#### Additional header and checks on client `/download` and `/thumbnail` endpoints
+
+- The authenticated `GET /_matrix/client/v1/media/download` and `GET /_matrix/client/v1/media/thumbnail`
+endpoints from
+[MSC3916: Authentication for media access, and new endpoint names](3916-authentication-for-media.md)
+endpoints MUST support `HEAD`, and MUST return
+`Content-Digest: sha-256=:<base64>:` on an authorized `GET` or `HEAD` response. The value is padded base64, as
+required by [RFC 9530](https://www.rfc-editor.org/rfc/rfc9530). `GET /_matrix/client/v1/media/thumbnail` returns the
+same headers. Its body is the thumbnail rather than the original file.
+
+- For encrypted media, the downloaded bytes are ciphertext. Therefore, the header won't help identify duplicate encrypted files, since re-encrypting the same file with a new key and IV generally produces different ciphertext. API sends the header consistently for all media, regardless of media is unencrypted or not. For unencrypted media, it is simply ignored.
+- If the `Content-Digest` header matches with one of the existing media hash, it can close the connection and server can raise `ConsumerRequestedStopError` to stop the transmission.
+- The server will respond with 404 and `M_NOT_FOUND` to avoid metadata enumeration if:
+
+  - The requester is not allowed to download the media
+  - The media no longer exists
+  - The media never existed
+
+- `Content-Digest` is the SHA-256 of the representation a successful `GET` would return: the media bytes, not the
+HTTP message framing. A `HEAD` response has no body, and the digest of that empty body is not the value servers send.
+The server MUST put the `GET` representation's digest in the `HEAD` response, the same value it would send for `GET`.
+A client that already has those bytes can stop after `HEAD`. After a `GET`, the client computes the SHA-256 of the
+received body and compares it to `Content-Digest`. A mismatch means the body was damaged in transit, and the client
+repeats the download.
+
+- An example HEAD response. The response has no body.`Content-Length` and `Content-Digest` describe the `GET` representation, not the empty `HEAD` body:
+
+  ```http
+  HEAD /_matrix/client/v1/media/download/example.org/abc123 HTTP/1.1
+  Authorization: Bearer syt_example_token
+
+  HTTP/1.1 200 OK
+  Content-Type: text/plain
+  Content-Length: 64
+  Content-Digest: sha-256=:pHpBzetAcxcllk6Yt9CATftv9Yl+6ue1U8QxsjCWVFo=:
+  ```
+
+- An example GET response. The digest is the SHA-256 of
+the body bytes below, with no trailing newline:
+
+  ```http
+  HTTP/1.1 200 OK
+  Content-Type: text/plain
+  Content-Digest: sha-256=:pHpBzetAcxcllk6Yt9CATftv9Yl+6ue1U8QxsjCWVFo=:
+
+  This media is plain text. Maybe somebody used it as a paste bin.
+  ```
+
+
+#### Federation API returns `restrictions` and `sha256` property
 
 - The [`GET /_matrix/federation/v1/media/download`](https://spec.matrix.org/v1.19/server-server-api/#get_matrixfederationv1mediadownloadmediaid)
 and `GET /_matrix/federation/v1/media/thumbnail` endpoints specified by
@@ -173,19 +211,24 @@ and `GET /_matrix/federation/v1/media/thumbnail` endpoints specified by
 return optional JSON object `restrictions`.
 - If there is no `restrictions` property, the media is legacy unrestricted media. Otherwise, `restrictions` must be a
 JSON object with one of the following properties:
+
   - `event_id`: the room event that this media is bound to
   - `profile_user_id`: the user whose profile this id is bound to
   - `user_id`: the single user who may download it (account data and URL previews)
   - `to_device`: an object with `sender` (one user ID) and `recipients` (a list of user IDs), for media bound to a
   to-device message
 
-  Example of restrictions:
+- Example of restrictions:
+
   ```json
     {
       "restrictions": {
         "event_id": "$Rqnc-F-dvnEYJTyHq_iKxU2bZ1CI92-kuZq3a5lr5Zg"
       }
-    },
+    }
+  ```
+
+  ```json
     {
       "restrictions": {
         "to_device": {
@@ -197,10 +240,12 @@ JSON object with one of the following properties:
       }
     }
   ```
+
 - It is invalid for more than one to be set or to have any unknown property. If restriction is invalid, the
 requesting server must not serve the media to anyone. The requesting server must check the restrictions, and return
 the requested media only to users allowed by them: users who can view the event or profile, the single `user_id`, or
 the `to_device` sender and recipients.
+- Pending media that is not yet attached is allowed only for its creator, and never over federation.
 - A federation download of pending, unbound media response with a status code of 404 and an error code of
 `M_NOT_FOUND`. The origin does not hand out a restricted file that has no binding.
 - If the requesting server caches the media, it must also cache the restrictions. The requesting server checks the
@@ -211,12 +256,13 @@ a status code of 404 and an error code of `M_NOT_FOUND`.
 - When the requesting server receives a redaction for that `event_id`, it stops serving the media and deletes its
 copy. If an operator policy retains the bytes, they stay unserved. When the server purges the room, it deletes the
 room's cached media. It does not wait for the origin to push a delete.
-- The JSON metadata part also contains `sha256`: the SHA-256 of the media bytes, as unpadded base64 (the usual Matrix
-encoding, unlike the padded `Content-Digest` header). That part arrives before the media part, so the receiving
-server can stop reading if it already has the bytes. This prevents an avatar traffic storm when a user is in many
-rooms.
+- Unlike the client download and thumbnail endpoints, federation api returns `multipart/mixed` body, a JSON part and
+then the file. The JSON metadata part also contains `sha256`: the SHA-256 of the media bytes, as unpadded base64 (the
+usual Matrix encoding, unlike the padded `Content-Digest` header). That part arrives before the media part, so as
+soon as the receiving server recieved the JSON part, it can check if the storage has the same sha256 file, and
+`abortConnection()` if it already has the bytes. This prevents an avatar traffic storm when a user is in many rooms.
 
-  An example response:
+- An example response:
 
   ```http
   Content-Type: multipart/mixed; boundary=gc0p4Jq0M2Yt08jU534c0p
@@ -243,13 +289,12 @@ server purges a room's events and the media bound to them when no local user is 
 local user who was in the room has either forgotten it (`/forget`) or been deactivated. Deactivation includes a GDPR
 Article 17 erasure and self-service account deactivation.
 - Remote servers delete their cached copy when they see the redaction, when they purge the room, or when revalidation
-response with a status code of 404 and an error code of `M_NOT_FOUND`, as described in
-[Federation API returns a](#4-federation-api-returns-a-restrictions-property) `restrictions` [property](#4-federation-api-returns-a-restrictions-property).
+response with a status code of 404 and an error code of `M_NOT_FOUND`.
 There is no separate federation purge API.
 - Clients SHOULD evict cached media for redacted events.
 - Servers MAY retain the bytes for legal or admin reasons, but MUST NOT serve them.
 - Redacting the original does not remove media in its edits, so clients that redact an edited message should redact the
-edits too. See MSC3912 (relation-based redactions).
+edits too.
 
 #### New media upload endpoint
 
@@ -309,20 +354,21 @@ for example by content-addressed storage. These notes describe the Synapse imple
 providers may differ.
 
 - Deduplication is internal. It is not a client-visible identifier, and this MSC does not add a feature flag for it.
-  This is totally backward compatible with existing media_id path storage.
+This is totally backward compatible with existing media_id path storage.
 - New bytes are stored by SHA-256. Local and remote objects do not share a file. Every storage provider is given the
 same relative path the local store uses, which is the upstream Synapse rule, extended with a hash key:
-  - Local file: local_content/by-sha/{sha[0:2]}/{sha[2:4]}/{sha[4:]}
-  - Local thumbnail: local_thumbnails/by-sha/{sha[0:2]}/{sha[2:4]}/{sha[4:]}/{width}-{height}-{type}-{method}
-  - Remote file: remote_content/by-sha/{server}/{sha[0:2]}/{sha[2:4]}/{sha[4:]}
-  - Remote thumbnail: remote_thumbnail/by-sha/{server}/{sha[0:2]}/{sha[2:4]}/{sha[4:]}/{width}-{height}-{type}-
-  {method}
+
+  - Local file: `local_content/by-sha/{sha[0:2]}/{sha[2:4]}/{sha[4:]}`
+  - Local thumbnail: `local_thumbnails/by-sha/{sha[0:2]}/{sha[2:4]}/{sha[4:]}/{width}-{height}-{type}-{method}`
+  - Remote file: `remote_content/by-sha/{server}/{sha[0:2]}/{sha[2:4]}/{sha[4:]}`
+  - Remote thumbnail: `remote_thumbnail/by-sha/{server}/{sha[0:2]}/{sha[2:4]}/{sha[4:]}/{width}-{height}-{type}-{method}`
 - `by-sha` is a new directory, so it does not collide with a media id or a server name. URL previews stay under
 `url_cache/` and are not hash keys.
-- Existing deployments keep the `media-id` paths from v1.19 (local_content/{mediaId}, remote_content/{server}/
-{fileId}, and the thumbnail directories). The server does not rewrite the store when this lands, and there is no
+- Existing deployments keep the `media-id` paths from v1.19 (`local_content/{mediaId}`, `remote_content/{server}/{fileId}`,
+and the thumbnail directories). The server does not rewrite the store when this lands, and there is no
 configuration switch.
 - Read, replace, and delete all take both paths:
+
   - Read the hash path, then the media-id path, then the legacy remote thumbnail name that omitted the method. A row
   with no hash uses only the media-id path. Ask the local disk and each storage provider with those same relative
   paths, in that order.
@@ -334,6 +380,7 @@ configuration switch.
   - Delete always removes that media id's media-id path, on the local disk and on every provider. Delete the hash
   path only when it is the last reference on that side. The local count ignores URL-preview rows. The remote count is
   per origin server. Then delete that same hash key on every provider.
+
 - A failed spam check or a failed quota check deletes only the temporary file. It does not delete a hash path that
 another media id already uses.
 - The same bytes uploaded twice on this server share one local file. The same bytes downloaded twice from the same
@@ -352,10 +399,12 @@ media should be accessible `?attach_media=dog`. For profile fields, account data
 listed in [Attaching media](#2-attaching-media), the server checks that the two match. For encrypted events and
 custom event types, the server cannot read or interpret the content, so nothing enforces the match. Users may
 then be unable to download the displayed image while being allowed to download an unrelated one. For those events:
+
   - `attach_media` is the authoritative access-control list.
   - Clients must ensure that it contains every restricted media id referenced by the event.
   - Incorrect or missing attachments are a client error and may produce broken media.
   - Custom or encrypted formats remain supported because the client explicitly supplies the IDs.
+
 - This MSC couples the media repository fairly tightly to the homeserver, because authorization depends on room
 membership, history visibility, and profile rules. A separate media store such as matrix-media-repo needs a
 homeserver-specific API to ask those questions. That API is out of scope.
@@ -369,6 +418,7 @@ advantage is that a nonce could be smaller, and so slightly fewer bytes would be
 - Bind member events directly to the profile media instead of copying it. This was rejected because changing an avatar
 would retroactively alter old member events.
 - For bridges that use the content repository as a paste bin, instead of hosting the bytes themselves:
+
   - using an external service
   - special-casing the bridge's application-service user so that it may upload unrestricted media. This reopens the
   leak this MSC closes.
@@ -398,20 +448,23 @@ hash.
 caller from enumerating ids.
 - A content hash is not an access key. No endpoint accepts a hash. A caller who knows the SHA-256 of a file still
 cannot download it without a media id they are allowed to use.
+- `Content-Digest` detects a body damaged in transit. It does not encrypt the media and it does not authenticate the
+server. A party that can replace both the body and the `Content-Digest` header can change the bytes without the
+client noticing. Clients that need sender authentication use the existing encrypted-attachment hashes in the event.
 
 ## Unstable prefix
 
-- While this MSC is not considered stable, implementations should use the following mapped values.
+- While this MSC is not considered stable, implementations should use the following mapped values:
 
-| Stable | Unstable |
-| --- | --- |
-| `/_matrix/client/v1/media/upload` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/upload` |
-| `/_matrix/client/v1/media/create` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/create` |
-| `attach_media` (repeated query parameter; each value is a local media id) | `de.famedly.mscXXXX.attach_media` |
-| `restrictions` | `de.famedly.mscXXXX.restrictions` (`event_id`, `profile_user_id`, `user_id`, and `to_device` are not prefixed) |
-| `sha256` (federation metadata) | `de.famedly.mscXXXX.sha256` |
-| `/_matrix/client/v1/media/copy/:serverName/:mediaId` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy/:serverName/:mediaId` |
-| `/_matrix/client/v1/media/copy` (batch) | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy` |
+  | Stable | Unstable |
+  | --- | --- |
+  | `/_matrix/client/v1/media/upload` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/upload` |
+  | `/_matrix/client/v1/media/create` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/create` |
+  | `attach_media` (repeated query parameter; each value is a local media id) | `de.famedly.mscXXXX.attach_media` |
+  | `restrictions` | `de.famedly.mscXXXX.restrictions` (`event_id`, `profile_user_id`, `user_id`, and `to_device` are not prefixed) |
+  | `sha256` (federation metadata) | `de.famedly.mscXXXX.sha256` |
+  | `/_matrix/client/v1/media/copy/:serverName/:mediaId` | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy/:serverName/:mediaId` |
+  | `/_matrix/client/v1/media/copy` (batch) | `/_matrix/client/unstable/de.famedly.mscXXXX/media/copy` |
 
 - Servers should provide a feature flag so that clients can enable support.
 - [Synapse implementation](https://github.com/famedly/synapse/pull/131) (written for Gematik, for the German
@@ -424,29 +477,29 @@ The implementation needs no client-side changes beyond updating the SDK and pass
 
 - [MSC3916: Authentication for media access, and new endpoint names](3916-authentication-for-media.md)
 - Widget support depends on
-[MSC4039: Access the Content Repository With the Widget API](https://github.com/nordeck/matrix-spec-proposals/blob/nic/feat/widgetapi-upload-files/proposals/4039-widget-api-media.md),
+[MSC4039: Access the Content Repository With the Widget API](https://github.com/matrix-org/matrix-spec-proposals/pull/4039),
 extended with `attach_media` on `send_event`.
 
 ## Prior art
 
 - Credit: this proposal is based on ideas from @jcgruenhage and @anoadragon453 at
 [here](https://cryptpad.fr/code/#/2/code/view/oWjZciD9N1aWTr1IL6GRZ0k1i+dm7wJQ7juLf4tJRoo/)
-- [MSC3796](https://github.com/matrix-org/matrix-spec-proposals/issues/3796):
-a predecessor of this proposal
-- [MSC2461](https://github.com/matrix-org/matrix-spec-proposals/pull/2461):
-adds per-user authentication but does not attempt to restrict access to individual items of media.
 - [MSC2278](https://github.com/matrix-org/matrix-spec-proposals/pull/2278):
 Deleting attachments for expired and redacted messages
-- [MSC1902](https://github.com/matrix-org/matrix-spec-proposals/pull/1902):
-Split the media repo into s2s and c2s parts
 - [MSC2846](https://github.com/matrix-org/matrix-spec-proposals/pull/2846):
 Decentralizing media through CIDs
 - [MSC3911](https://github.com/matrix-org/matrix-spec-proposals/pull/3911):
 Linking media to events
 - [MSC3916](3916-authentication-for-media.md):
 Authentication for media access, and new endpoint names
-- [MSC4027](https://github.com/beeper/matrix-spec-proposals/blob/custom-images-in-reactions/proposals/4027-custom-images-in-reactions.md):
+- [MSC4027](https://github.com/matrix-org/matrix-spec-proposals/pull/4027):
 Custom Images in Reactions
 - [MSC4396](https://github.com/matrix-org/matrix-spec-proposals/pull/4396):
 Inline linked media
+- [MSC4322](https://github.com/matrix-org/matrix-spec-proposals/pull/4322):
+Simple Media Self-Redaction
+- [MSC4249](https://github.com/matrix-org/matrix-spec-proposals/pull/4249):
+Removal of legacy media endpoints
+- [MSC4101](https://github.com/matrix-org/matrix-spec-proposals/pull/4101):
+Hashes for unencrypted media
 - [Support deleting media from non-local storage providers](https://github.com/element-hq/synapse/pull/19665)
